@@ -1,23 +1,38 @@
 package cmd
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 
-	server "github.com/AnhBigBrother/tcp-chat-server/internal"
+	server "github.com/AnhTTx13/tcp-chat-server/internal"
 )
 
-var PORT int
+var (
+	Port int
+)
 
 func init() {
-	flag.IntVar(&PORT, "port", 8080, "Specify port number")
+	flag.IntVar(&Port, "port", 8080, "Specify port number")
 	flag.Parse()
 }
 
 func Execute() {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", PORT))
+	var addr string = fmt.Sprintf(":%d", Port)
+
+	fmt.Println("Secure TCP socket chat-server using TLS connection.")
+	cert, err := server.LoadCerts()
+	if err != nil {
+		log.Fatal("Cannot load certificates: ", err.Error())
+	}
+	fmt.Println("Certificates loaded")
+	config := tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	listener, err := tls.Listen("tcp", addr, &config)
+
 	if err != nil {
 		log.Fatal(err.Error())
 		return
@@ -38,7 +53,7 @@ func Execute() {
 		}
 	}
 
-	fmt.Println("Socket server listening on port:", PORT)
+	fmt.Println("Server listening on port:", Port)
 	s := server.NewServer()
 
 	for {
