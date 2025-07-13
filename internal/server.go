@@ -50,10 +50,7 @@ func (s *Server) HandleConnection(conn net.Conn) {
 			err = s.handleJoinRoom(client, data)
 		case MESSAGE:
 			err = s.handleSendMessage(client, data)
-		case GET_USER_ROOMS:
-			rooms := s.handleGetClientRooms(client)
-			respMsg = strings.Join(rooms, ", ")
-		case GET_ALL_ROOMS:
+		case GET_ROOMS:
 			rooms := s.handleGetAllRooms()
 			respMsg = strings.Join(rooms, ", ")
 		default:
@@ -133,16 +130,6 @@ func (s *Server) handleSendMessage(c *client, msg string) error {
 	room.mtx.Unlock()
 
 	return nil
-}
-
-func (s *Server) handleGetClientRooms(c *client) []string {
-	client_rooms := []string{}
-	for _, room := range s.rooms {
-		if room.members[c.client_id] != nil {
-			client_rooms = append(client_rooms, room.room_name)
-		}
-	}
-	return client_rooms
 }
 
 func (s *Server) handleGetAllRooms() []string {
