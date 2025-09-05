@@ -40,7 +40,7 @@ openssl x509 -req -in $cert_dir/server-req.pem -CA $cert_dir/ca-cert.pem -CAkey 
 	key_file := fmt.Sprintf("%s/server-key.pem", cert_dir)
 
 	_, err1 := os.Stat(cert_file)
-	_, err2 := os.Stat(cert_file)
+	_, err2 := os.Stat(key_file)
 	if errors.Is(err1, os.ErrNotExist) || errors.Is(err2, os.ErrNotExist) {
 		fmt.Println("No SSL certifictes found, creating certifictes...")
 		fmt.Println()
