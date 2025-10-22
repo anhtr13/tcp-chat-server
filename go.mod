@@ -1,4 +1,4 @@
-module github.com/AnhTTx13/tcp-chat-server
+module github.com/anhtr13/tcp-chat-server
 
 go 1.24.1
 

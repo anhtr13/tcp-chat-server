@@ -7,7 +7,7 @@ import (
 	"log"
 	"net"
 
-	server "github.com/AnhTTx13/tcp-chat-server/internal"
+	server "github.com/anhtr13/tcp-chat-server/internal"
 )
 
 var (

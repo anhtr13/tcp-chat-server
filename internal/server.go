@@ -11,25 +11,30 @@ import (
 
 type Server struct {
 	rooms map[string]*room
-	mtx   sync.Mutex
+	mtx   sync.RWMutex
 }
 
 func NewServer() *Server {
 	return &Server{
 		rooms: map[string]*room{},
-		mtx:   sync.Mutex{},
+		mtx:   sync.RWMutex{},
 	}
 }
 
 func (s *Server) HandleConnection(conn net.Conn) {
-	client := newClient("Anonymous", conn)
+	client := new_client("Anonymous", conn)
 	fmt.Printf("%s has connected.\n", client.client_id)
 	for {
 		dec := gob.NewDecoder(conn)
 		msg := message{}
 		err := dec.Decode(&msg)
+
 		if err == io.EOF {
-			s.handleDisconnect(client)
+			room := client.get_current_room()
+			if room != nil {
+				room.remove_member(client)
+				room.broadcast(fmt.Sprintf("%s has left the room.", client.client_name))
+			}
 			fmt.Printf("%s has disconnected.\n", client.client_id)
 			return
 		}
@@ -38,126 +43,61 @@ func (s *Server) HandleConnection(conn net.Conn) {
 			return
 		}
 
-		// fmt.Printf("Received payload: %s\n", msg)
-		event, data := msg.Event, msg.Data
-		var respMsg string = ""
+		event := EVENT(strings.TrimSpace(string(msg.Event)))
+		data := strings.TrimSpace(msg.Data)
 
 		switch event {
 		case RENAME:
-			s.handleRename(client, data)
-			respMsg = fmt.Sprintf("Your new name is %s", data)
+			client.rename(data)
+			client.write(MESSAGE, fmt.Sprintf("Your new name is %s", data))
 		case JOIN_ROOM:
-			err = s.handleJoinRoom(client, data)
+			if data == "" {
+				client.write(ERROR, "Invalid room name.")
+				continue
+			}
+			prev_room := client.get_current_room()
+			if prev_room != nil {
+				prev_room.remove_member(client)
+				prev_room.broadcast(fmt.Sprintf("%s has left the room.", client.client_name))
+			}
+			room := s.get_room(data)
+			room.add_member(client)
+			client.change_room(room)
+			room.broadcast(fmt.Sprintf("%s has joined room.", client.client_name))
 		case MESSAGE:
-			err = s.handleSendMessage(client, data)
+			room := client.get_current_room()
+			if room == nil {
+				client.write(ERROR, "You're not in any room, join a room to send message.")
+				continue
+			}
+			room.broadcast(fmt.Sprintf("%s: %s", client.client_name, data))
 		case GET_ROOMS:
-			rooms := s.handleGetAllRooms()
-			respMsg = strings.Join(rooms, ", ")
+			rooms := s.get_all_rooms()
+			resp := fmt.Sprintf("[%s]", strings.Join(rooms, ", "))
+			client.write(MESSAGE, resp)
 		default:
-			err = fmt.Errorf("Unknow command: %s", event)
-		}
-
-		if err != nil {
-			client.write(ERROR, err.Error())
-		}
-		if respMsg != "" {
-			client.write(MESSAGE, respMsg)
+			client.write(ERROR, fmt.Sprintf("Unknown command: %s", event))
 		}
 	}
 }
 
-func (s *Server) handleRename(c *client, newName string) {
-	c.mtx.Lock()
-	c.client_name = newName
-	c.mtx.Unlock()
-}
-
-func (s *Server) handleJoinRoom(c *client, roomName string) error {
-	if roomName == "" {
-		return fmt.Errorf("Invalid room.")
-	}
-
+func (s *Server) get_room(room_name string) *room {
 	s.mtx.Lock()
-	room := s.rooms[roomName]
-	if s.rooms[roomName] == nil {
-		room = newRoom(roomName)
-		s.rooms[roomName] = room
+	r := s.rooms[room_name]
+	if r == nil {
+		r = new_room(room_name)
+		s.rooms[room_name] = r
 	}
 	s.mtx.Unlock()
-
-	room.mtx.Lock()
-	if room.members[c.client_id] != nil {
-		room.mtx.Unlock()
-		return fmt.Errorf("You're already in the room.")
-	}
-	room.members[c.client_id] = c
-	room.broadcast(fmt.Sprintf("%s has joined room.", c.client_name))
-	room.mtx.Unlock()
-
-	c.mtx.Lock()
-	prev_room := c.current_room
-	if prev_room != nil {
-		prev_room.mtx.Lock()
-		delete(prev_room.members, c.client_id)
-		if len(prev_room.members) == 0 {
-			s.mtx.Lock()
-			delete(s.rooms, prev_room.room_name)
-			s.mtx.Unlock()
-		} else {
-			prev_room.broadcast(fmt.Sprintf("%s has left the room.", c.client_name))
-		}
-		prev_room.mtx.Unlock()
-	}
-	c.current_room = room
-	c.mtx.Unlock()
-
-	return nil
+	return r
 }
 
-func (s *Server) handleSendMessage(c *client, msg string) error {
-	c.mtx.Lock()
-	room := c.current_room
-	if room == nil {
-		c.mtx.Unlock()
-		return fmt.Errorf("You're not in any room, join a room to send message.")
-	}
-	c.mtx.Unlock()
-
-	msg = fmt.Sprintf("%s: %s", c.client_name, msg)
-
-	room.mtx.Lock()
-	room.broadcast(msg)
-	room.mtx.Unlock()
-
-	return nil
-}
-
-func (s *Server) handleGetAllRooms() []string {
+func (s *Server) get_all_rooms() []string {
 	all_rooms := []string{}
+	s.mtx.RLock()
 	for _, room := range s.rooms {
 		all_rooms = append(all_rooms, room.room_name)
 	}
+	s.mtx.RUnlock()
 	return all_rooms
-}
-
-func (s *Server) handleDisconnect(c *client) {
-	c.mtx.Lock()
-	room := c.current_room
-	if room == nil {
-		c.mtx.Unlock()
-		return
-	}
-	c.mtx.Unlock()
-
-	room.mtx.Lock()
-	defer room.mtx.Unlock()
-
-	delete(room.members, c.client_id)
-	if len(room.members) == 0 {
-		s.mtx.Lock()
-		delete(s.rooms, room.room_name)
-		s.mtx.Unlock()
-	} else {
-		room.broadcast(fmt.Sprintf("%s has left the room.", c.client_name))
-	}
 }
