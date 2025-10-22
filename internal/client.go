@@ -1,10 +1,11 @@
 package server
 
 import (
-	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -48,11 +49,15 @@ func (c *client) change_room(r *room) {
 }
 
 func (c *client) write(event EVENT, data string) {
-	enc := gob.NewEncoder(c.conn)
-	err := enc.Encode(message{
-		Event: event,
-		Data:  data,
-	})
+	c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	payload, _ := json.Marshal(
+		message{
+			Event:   event,
+			Payload: data,
+		},
+	)
+	payload = append(payload, '\n')
+	_, err := c.conn.Write(payload)
 	if err != nil {
 		fmt.Println("Error when write to client: ", err.Error())
 	}

@@ -1,13 +1,16 @@
 package server
 
 import (
-	"encoding/gob"
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"strings"
 	"sync"
 )
+
+const BUFF_SIZE = 10
 
 type Server struct {
 	rooms map[string]*room
@@ -23,12 +26,14 @@ func NewServer() *Server {
 
 func (s *Server) HandleConnection(conn net.Conn) {
 	client := new_client("Anonymous", conn)
-	fmt.Printf("%s has connected.\n", client.client_id)
-	for {
-		dec := gob.NewDecoder(conn)
-		msg := message{}
-		err := dec.Decode(&msg)
+	defer conn.Close()
 
+	fmt.Printf("%s has connected.\n", client.client_id)
+
+	reader := bufio.NewReader(conn)
+
+	for {
+		data, err := reader.ReadBytes('\n')
 		if err == io.EOF {
 			room := client.get_current_room()
 			if room != nil {
@@ -39,19 +44,26 @@ func (s *Server) HandleConnection(conn net.Conn) {
 			return
 		}
 		if err != nil {
-			fmt.Printf("Error when handle connection %s: %s.\n", client.client_id, err.Error())
+			fmt.Println("Error when read file: ", err.Error())
+			return
+		}
+
+		msg := message{}
+		err = json.Unmarshal(data, &msg)
+		if err != nil {
+			fmt.Println("Cannot unmarshal payload: ", err.Error())
 			return
 		}
 
 		event := EVENT(strings.TrimSpace(string(msg.Event)))
-		data := strings.TrimSpace(msg.Data)
+		payload := strings.TrimSpace(msg.Payload)
 
 		switch event {
 		case RENAME:
-			client.rename(data)
-			client.write(MESSAGE, fmt.Sprintf("Your new name is %s", data))
+			client.rename(payload)
+			client.write(MESSAGE, fmt.Sprintf("Your new name is %s", payload))
 		case JOIN_ROOM:
-			if data == "" {
+			if payload == "" {
 				client.write(ERROR, "Invalid room name.")
 				continue
 			}
@@ -60,7 +72,7 @@ func (s *Server) HandleConnection(conn net.Conn) {
 				prev_room.remove_member(client)
 				prev_room.broadcast(fmt.Sprintf("%s has left the room.", client.client_name))
 			}
-			room := s.get_room(data)
+			room := s.get_room(payload)
 			room.add_member(client)
 			client.change_room(room)
 			room.broadcast(fmt.Sprintf("%s has joined room.", client.client_name))
@@ -70,7 +82,7 @@ func (s *Server) HandleConnection(conn net.Conn) {
 				client.write(ERROR, "You're not in any room, join a room to send message.")
 				continue
 			}
-			room.broadcast(fmt.Sprintf("%s: %s", client.client_name, data))
+			room.broadcast(fmt.Sprintf("%s: %s", client.client_name, payload))
 		case GET_ROOMS:
 			rooms := s.get_all_rooms()
 			resp := fmt.Sprintf("[%s]", strings.Join(rooms, ", "))

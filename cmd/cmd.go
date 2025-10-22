@@ -22,7 +22,7 @@ func init() {
 func Execute() {
 	var addr string = fmt.Sprintf(":%d", Port)
 
-	fmt.Println("Secure TCP socket chat-server using TLS connection.")
+	fmt.Println("Using TLS connection.")
 	cert, err := server.LoadCerts()
 	if err != nil {
 		log.Fatal("Cannot load certificates: ", err.Error())

@@ -1,6 +1,6 @@
 package server
 
 type message struct {
-	Event EVENT
-	Data  string
+	Event   EVENT  `json:"event"`
+	Payload string `json:"payload"`
 }
